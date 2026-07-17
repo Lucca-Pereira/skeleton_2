@@ -3,6 +3,7 @@
 	import { onMount } from "svelte";
 	import * as THREE from "three";
 	import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+	import { base } from '$app/paths';
 
 
 	let { children } = $props();
@@ -118,7 +119,7 @@
 
 		const loader = new GLTFLoader();
 		loader.load(
-			"/model.glb",
+			`${base}/model.glb`,
 			(gltf) => {
 				gltf.scene.traverse((child) => {
 					if (child.isMesh) {
