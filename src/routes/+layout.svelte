@@ -84,8 +84,8 @@
 			const halfHeight = (camera.top - camera.bottom) / 2;
 
 			const oldZoom = camera.zoom;
-			camera.zoom -= event.deltaY * 0.001;
-			camera.zoom = Math.max(0.5, Math.min(5, camera.zoom));
+			camera.zoom -= event.deltaY * 0.0035;
+			camera.zoom = Math.max(0.5, Math.min(20, camera.zoom));
 			const newZoom = camera.zoom;
 
 			camera.position.x += ndcX * halfWidth * (1 / oldZoom - 1 / newZoom);
@@ -117,21 +117,35 @@
 		// --- Load the model ---
 		let boneMesh = null;
 
+		const insertionPattern = /[oe]\d*[rl]$/;
+
 		const loader = new GLTFLoader();
 		loader.load(
 			`${base}/model.glb`,
 			(gltf) => {
+				const insertionMeshes = [];
+
 				gltf.scene.traverse((child) => {
 					if (child.isMesh) {
-						if (!boneMesh) boneMesh = child;
-
-						// Runtime patch: force emissive to black.
-						// Z-Anatomy's exported material comes through with a
-						// full-white emissive value regardless of what's set
-						// in Blender's node group — overriding it here until
-						// the actual export-side cause is tracked down.
 						child.material.emissive.set(0x000000);
+
+
+						if (insertionPattern.test(child.name)) {
+							insertionMeshes.push(child);
+						} else if (!boneMesh) {
+							boneMesh = child;
+						}
 					}
+				});
+				
+				const insertionMaterial = boneMesh.material.clone();
+				insertionMaterial.color.set(0xff4500);
+				insertionMaterial.polygonOffset = true;
+				insertionMaterial.polygonOffsetFactor = -1;
+				insertionMaterial.polygonOffsetUnits = -1;
+
+				insertionMeshes.forEach((mesh) => {
+					mesh.material = insertionMaterial;
 				});
 
 			const pivot = new THREE.Group();
@@ -144,9 +158,9 @@
 			const scale = 2 / maxDim;
 
 			gltf.scene.scale.setScalar(scale);
-			gltf.scene.position.sub(center.multiplyScalar(scale)); // shifts geometry so it's centered *within* pivot
+			gltf.scene.position.sub(center.multiplyScalar(scale));
 
-			loadedModel = pivot; // drag handlers now rotate/pan the pivot, not gltf.scene directly
+			loadedModel = pivot;
 			},
 			undefined,
 			(error) => console.error("Model failed to load:", error),
