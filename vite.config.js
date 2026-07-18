@@ -10,7 +10,7 @@ export default defineConfig({
 			}),
 			kit: {
 				paths: {
-					base: process.env.NODE_ENV === 'production' ? '/skeleton_2' : ''
+					base: '/skeleton_2'
 				}
 			},
 			compilerOptions: {
