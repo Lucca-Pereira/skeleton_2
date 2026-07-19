@@ -4,6 +4,11 @@
 	import * as THREE from "three";
 	import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 	import { base } from '$app/paths';
+	import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+	import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+	import { OutlinePass } from "three/examples/jsm/postprocessing/OutlinePass.js";
+	import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+
 
 
 	let { children } = $props();
@@ -12,6 +17,11 @@
 	let dragButton = null;
 	let lastX = 0;
 	let lastY = 0;
+
+	let hoveredName = $state(null);
+	let tooltipX = $state(0);
+	let tooltipY = $state(0);
+	let insertionMeshes = [];
 
 	onMount(() => {
 		// --- Scene ---
@@ -37,6 +47,40 @@
 
 		renderer.setPixelRatio(window.devicePixelRatio);
 		
+		//Composer addons
+		
+		//Add smoothness layer since its now passing through composer
+		const renderTarget = new THREE.WebGLRenderTarget(
+			window.innerWidth,
+			window.innerHeight,
+			{ samples: 4 }
+		);
+
+		//Composer pass "addPass"
+		const composer = new EffectComposer(renderer, renderTarget);
+		const renderPass = new RenderPass(scene, camera);
+		composer.addPass(renderPass);
+
+		//Raycaster
+		const raycaster = new THREE.Raycaster();
+		const pointer = new THREE.Vector2();
+
+		//Edge creation
+		const outlinePass = new OutlinePass(
+			new THREE.Vector2(window.innerWidth, window.innerHeight),
+			scene,
+			camera
+		);
+		outlinePass.edgeStrength = 5;
+		outlinePass.edgeGlow = 0.5;
+		outlinePass.edgeThickness = 2;
+		outlinePass.visibleEdgeColor.set(0xffff00);
+		outlinePass.hiddenEdgeColor.set(0xffff00);
+		composer.addPass(outlinePass);
+
+		const outputPass = new OutputPass();
+		composer.addPass(outputPass);
+
 		// Moviendo el raton hace tal
 		
 		canvasEl.addEventListener('pointerdown', (event) => {
@@ -47,7 +91,7 @@
 		});
 
 		canvasEl.addEventListener('pointermove', (event) => {
-			if (dragButton === null || !loadedModel) return;
+			if (!loadedModel) return;
 			const deltaX = event.clientX - lastX;
 			const deltaY = event.clientY - lastY;
 
@@ -59,6 +103,43 @@
 				// left-drag: pan
 				loadedModel.position.x += deltaX * 0.0025 / camera.zoom;
 				loadedModel.position.y -= deltaY * 0.0025 / camera.zoom;
+			} else if (dragButton === null){
+				const rect = canvasEl.getBoundingClientRect();
+				pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+				pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+
+				raycaster.setFromCamera(pointer, camera);
+
+
+				const hits = raycaster.intersectObject(loadedModel, true);
+				const insertionHit = hits.find((h) => insertionMeshes.includes(h.object));
+
+				function baseName(name) {
+					return name.replace(/_\d+$/, '');
+				}
+
+				if (insertionHit) {
+					const parentBase = baseName(insertionHit.object.parent?.name || '');
+
+					const trulyOccluded = hits.some(
+						(h) => h.distance < insertionHit.distance - 0.0001 && baseName(h.object.name) !== parentBase
+					);
+					//console.log('Truly occluded:', trulyOccluded);
+
+
+					if (!trulyOccluded) {
+						outlinePass.selectedObjects = [insertionHit.object];
+						hoveredName = insertionHit.object.name.replace(insertionPattern, '').replace(/_/g, ' ');
+						tooltipX = event.clientX;
+						tooltipY = event.clientY;
+					} else {
+						outlinePass.selectedObjects = [];
+						hoveredName = null;
+					}
+				} else {
+					outlinePass.selectedObjects = [];
+					hoveredName = null;
+				}
 			}
 
 			lastX = event.clientX;
@@ -102,6 +183,8 @@
 			camera.bottom = -viewSize / 2;
 			camera.updateProjectionMatrix();
 			renderer.setSize(window.innerWidth, window.innerHeight);
+			composer.setSize(window.innerWidth, window.innerHeight);
+			renderTarget.setSize(window.innerWidth, window.innerHeight);
 		});
 
 		// --- Lighting ---
@@ -123,7 +206,7 @@
 		loader.load(
 			`${base}/model.glb`,
 			(gltf) => {
-				const insertionMeshes = [];
+				insertionMeshes = [];
 
 				gltf.scene.traverse((child) => {
 					if (child.isMesh) {
@@ -141,8 +224,8 @@
 				const insertionMaterial = boneMesh.material.clone();
 				insertionMaterial.color.set(0xff4500);
 				insertionMaterial.polygonOffset = true;
-				insertionMaterial.polygonOffsetFactor = -1;
-				insertionMaterial.polygonOffsetUnits = -1;
+				insertionMaterial.polygonOffsetFactor = -4;
+				insertionMaterial.polygonOffsetUnits = -4;
 
 				insertionMeshes.forEach((mesh) => {
 					mesh.material = insertionMaterial;
@@ -168,7 +251,7 @@
 
 		// --- Render loop ---
 		function animate() {
-			renderer.render(scene, camera);
+			composer.render();
 		}
 		renderer.setAnimationLoop(animate);
 	});
@@ -186,6 +269,18 @@
 	canvas {
 		display: block;
 	}
+
+	.tooltip {
+		position: fixed;
+		pointer-events: none;
+		background: rgba(0, 0, 0, 0.85);
+		color: white;
+		padding: 4px 10px;
+		border-radius: 4px;
+		font-family: monospace;
+		font-size: 13px;
+		z-index: 10;
+}
 </style>
 
 <svelte:head>
@@ -193,5 +288,11 @@
 </svelte:head>
 
 <canvas bind:this={canvasEl}></canvas>
+
+{#if hoveredName}
+	<div class="tooltip" style="left: {tooltipX + 12}px; top: {tooltipY + 12}px;">
+		{hoveredName}
+	</div>
+{/if}
 
 {@render children()}
