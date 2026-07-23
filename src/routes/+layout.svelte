@@ -22,6 +22,12 @@
 	let tooltipX = $state(0);
 	let tooltipY = $state(0);
 	let insertionMeshes = [];
+	let namesEnabled = $state(true);
+
+	//Gemini
+	let query = $state('');
+	let answer = $state(null);
+	let loading = $state(false);
 
 	onMount(() => {
 		// --- Scene ---
@@ -112,6 +118,7 @@
 
 
 				const hits = raycaster.intersectObject(loadedModel, true);
+					
 				const insertionHit = hits.find((h) => insertionMeshes.includes(h.object));
 
 				function baseName(name) {
@@ -128,6 +135,7 @@
 
 
 					if (!trulyOccluded) {
+						//console.log('Setting outline on:', insertionHit.object.name);
 						outlinePass.selectedObjects = [insertionHit.object];
 						hoveredName = insertionHit.object.name.replace(insertionPattern, '').replace(/_/g, ' ');
 						tooltipX = event.clientX;
@@ -255,6 +263,18 @@
 		}
 		renderer.setAnimationLoop(animate);
 	});
+
+	//Gemini submission
+	async function askQuestion() {
+		loading = true;
+		const res = await fetch('https://muscle-query-worker.bones-2026.workers.dev', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ query })
+		});
+		answer = await res.json();
+		loading = false;
+	}
 </script>
 
 
@@ -280,7 +300,27 @@
 		font-family: monospace;
 		font-size: 13px;
 		z-index: 10;
-}
+	}	
+	.toggle-names {
+		position: fixed;
+		top: 12px;
+		left: 12px;
+		z-index: 20;
+		padding: 6px 12px;
+		cursor: pointer;
+	}
+
+	.query-box {
+		position: fixed;
+		bottom: 12px;
+		left: 12px;
+		z-index: 20;
+		background: rgba(0,0,0,0.85);
+		color: white;
+		padding: 8px;
+		border-radius: 6px;
+		max-width: 400px;
+	}
 </style>
 
 <svelte:head>
@@ -289,7 +329,22 @@
 
 <canvas bind:this={canvasEl}></canvas>
 
-{#if hoveredName}
+<button class="toggle-names" onclick={() => namesEnabled = !namesEnabled}>
+	{namesEnabled ? 'Hide names' : 'Show names'}
+</button>
+
+
+<div class="query-box">
+	<input bind:value={query} placeholder="Ask about a muscle..." />
+	<button onclick={askQuestion} disabled={loading}>
+		{loading ? '...' : 'Ask'}
+	</button>
+	{#if answer}
+		<pre>{JSON.stringify(answer, null, 2)}</pre>
+	{/if}
+</div>
+
+{#if hoveredName && namesEnabled}
 	<div class="tooltip" style="left: {tooltipX + 12}px; top: {tooltipY + 12}px;">
 		{hoveredName}
 	</div>
